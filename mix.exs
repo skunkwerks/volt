@@ -3,8 +3,11 @@ defmodule Volt.MixProject do
 
   @version "0.14.0"
   @source_url "https://github.com/elixir-volt/volt"
+  @zigler_zig_version "0.15.2"
 
   def project do
+    ensure_zigler_zig()
+
     [
       app: :volt,
       version: @version,
@@ -34,11 +37,19 @@ defmodule Volt.MixProject do
     [
       {:reach, "~> 2.6.1", only: [:dev, :test], runtime: false},
       {:glob_ex, "~> 0.1"},
-      {:oxc, "~> 0.15.1"},
+      {:oxc,
+       git: "https://github.com/skunkwerks/oxc_ex.git",
+       branch: "feature/add-freebsd",
+       override: true},
       {:vize, git: "https://github.com/skunkwerks/vize_ex.git", branch: "feature/add-freebsd"},
       {:rustler, "~> 0.37", optional: true},
-      {:oxide_ex, "~> 0.2.1"},
-      {:quickbeam, "~> 0.10.15"},
+      {:oxide_ex,
+       git: "https://github.com/skunkwerks/oxide_ex.git", branch: "feature/add-freebsd"},
+      {:quickbeam,
+       git: "https://github.com/skunkwerks/quickbeam.git",
+       branch: "feature/add-freebsd",
+       override: true},
+      {:zigler, "~> 0.15.2", runtime: false, optional: true},
       {:dotenvy, "~> 1.1"},
       {:floki, "~> 0.38"},
       {:plug, "~> 1.16"},
@@ -71,6 +82,62 @@ defmodule Volt.MixProject do
       setup: ["deps.get"],
       ci: ["lint", "cmd env MIX_ENV=test mix test"]
     ]
+  end
+
+  defp ensure_zigler_zig do
+    if freebsd?() and
+         blank?(System.get_env("ZIG_EXECUTABLE_PATH")) and
+         blank?(System.get_env("ZIG_ARCHIVE_PATH")) and
+         !compatible_zig?(System.find_executable("zig")) do
+      case find_cached_freebsd_zig() do
+        nil -> :ok
+        path -> System.put_env("ZIG_EXECUTABLE_PATH", path)
+      end
+    end
+  end
+
+  defp freebsd?, do: :os.type() == {:unix, :freebsd}
+
+  defp blank?(nil), do: true
+  defp blank?(""), do: true
+  defp blank?(_), do: false
+
+  defp find_cached_freebsd_zig do
+    cache_dir = :filename.basedir(:user_cache, ~c"zigler") |> List.to_string()
+
+    [
+      Path.join(cache_dir, "zig-#{freebsd_zig_arch()}-freebsd-#{@zigler_zig_version}/zig"),
+      Path.join(cache_dir, "zig-amd64-freebsd15.1-#{@zigler_zig_version}/zig")
+    ]
+    |> Enum.find(&compatible_zig?/1)
+  end
+
+  defp freebsd_zig_arch do
+    :system_architecture
+    |> :erlang.system_info()
+    |> to_string()
+    |> String.split("-")
+    |> List.first()
+    |> case do
+      "amd64" -> "x86_64"
+      arch -> arch
+    end
+  end
+
+  defp compatible_zig?(nil), do: false
+
+  defp compatible_zig?(path) do
+    File.exists?(path) and
+      match?({version, 0} when version == @zigler_zig_version, zig_version(path))
+  end
+
+  defp zig_version(path) do
+    case System.cmd(path, ["version"], stderr_to_stdout: true) do
+      {version, 0} -> {String.trim(version), 0}
+      other -> other
+    end
+  rescue
+    _ -> :error
   end
 
   defp package do
