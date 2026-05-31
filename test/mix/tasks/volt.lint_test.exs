@@ -80,6 +80,15 @@ defmodule Volt.LintTest do
   end
 
   test "reports correct file location" do
+    original_ansi = Application.get_env(:elixir, :ansi_enabled)
+    Application.put_env(:elixir, :ansi_enabled, true)
+
+    on_exit(fn ->
+      if is_nil(original_ansi),
+        do: Application.delete_env(:elixir, :ansi_enabled),
+        else: Application.put_env(:elixir, :ansi_enabled, original_ansi)
+    end)
+
     File.write!(Path.join(@tmp_dir, "loc.js"), "const a = 1;\nexport const b = x == y;\n")
     Application.put_env(:volt, :lint, rules: %{"eqeqeq" => :deny})
 

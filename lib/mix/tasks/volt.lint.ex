@@ -167,6 +167,7 @@ defmodule Mix.Tasks.Volt.Lint do
     arrow = priority_arrow(diag.severity)
     source = File.read!(diag.file)
     {line, col} = offset_to_line_col(source, elem(diag.span, 0))
+    location = "#{diag.file}:#{line}:#{col}"
 
     Mix.shell().info(
       IO.ANSI.format([
@@ -190,10 +191,7 @@ defmodule Mix.Tasks.Volt.Lint do
         "┃       ",
         :reset,
         :faint,
-        diag.file,
-        :default_color,
-        :faint,
-        ":#{line}:#{col}",
+        location,
         " #(",
         diag.rule,
         ")"
