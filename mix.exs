@@ -89,7 +89,7 @@ defmodule Volt.MixProject do
          blank?(System.get_env("ZIG_EXECUTABLE_PATH")) and
          blank?(System.get_env("ZIG_ARCHIVE_PATH")) and
          !compatible_zig?(System.find_executable("zig")) do
-      case find_cached_freebsd_zig() do
+      case find_cached_freebsd_zig() || fetch_freebsd_zig() do
         nil -> :ok
         path -> System.put_env("ZIG_EXECUTABLE_PATH", path)
       end
@@ -110,6 +110,66 @@ defmodule Volt.MixProject do
       Path.join(cache_dir, "zig-amd64-freebsd15.1-#{@zigler_zig_version}/zig")
     ]
     |> Enum.find(&compatible_zig?/1)
+  end
+
+  defp fetch_freebsd_zig do
+    cache_dir = :filename.basedir(:user_cache, ~c"zigler") |> List.to_string()
+    arch = freebsd_zig_arch()
+    archive_name = "zig-#{arch}-freebsd-#{@zigler_zig_version}.tar.xz"
+    archive_path = Path.join(System.tmp_dir!(), archive_name)
+    zig_path = Path.join(cache_dir, "zig-#{arch}-freebsd-#{@zigler_zig_version}/zig")
+    url = "https://ziglang.org/download/#{@zigler_zig_version}/#{archive_name}"
+
+    Mix.shell().info("Downloading Zig #{@zigler_zig_version} for #{arch}-freebsd")
+
+    with :ok <- File.mkdir_p(cache_dir),
+         :ok <- download_file(url, archive_path),
+         :ok <- extract_archive(archive_path, cache_dir),
+         true <- compatible_zig?(zig_path) do
+      File.rm(archive_path)
+      zig_path
+    else
+      false ->
+        Mix.shell().error(
+          "Downloaded Zig archive did not install a compatible binary at #{zig_path}"
+        )
+
+        nil
+
+      {:error, message} ->
+        Mix.shell().error(message)
+        nil
+    end
+  end
+
+  defp download_file(url, path) do
+    cond do
+      fetch = System.find_executable("fetch") ->
+        run_tool(fetch, ["-o", path, url], "Could not download Zig from #{url}")
+
+      curl = System.find_executable("curl") ->
+        run_tool(curl, ["--fail", "-L", "-o", path, url], "Could not download Zig from #{url}")
+
+      true ->
+        {:error, "Could not download Zig: neither fetch nor curl is available"}
+    end
+  end
+
+  defp extract_archive(archive_path, cache_dir) do
+    case System.find_executable("tar") do
+      nil ->
+        {:error, "Could not extract Zig: tar is not available"}
+
+      tar ->
+        run_tool(tar, ["-C", cache_dir, "-xf", archive_path], "Could not extract Zig archive")
+    end
+  end
+
+  defp run_tool(executable, args, error_message) do
+    case System.cmd(executable, args, stderr_to_stdout: true) do
+      {_output, 0} -> :ok
+      {output, status} -> {:error, "#{error_message} (exit #{status}): #{String.trim(output)}"}
+    end
   end
 
   defp freebsd_zig_arch do
